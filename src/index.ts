@@ -113,6 +113,8 @@ app.post('/send-message', async (req, res) => {
     // Remover caracteres especiais e garantir formato correto
     const cleanPhone = phone.replace(/\D/g, '');
 
+    console.log(`📤 Enviando mensagem para ${cleanPhone}...`);
+
     const response = await axios.post(
       `${WHATSAPP_API_URL}/messages`,
       {
@@ -129,13 +131,25 @@ app.post('/send-message', async (req, res) => {
       }
     );
 
-    console.log('✅ Mensagem enviada:', response.data);
+    console.log('✅ Resposta da API WhatsApp:', JSON.stringify(response.data, null, 2));
+
+    // Validar resposta antes de acessar
+    if (!response.data || !response.data.messages || !response.data.messages[0]) {
+      console.error('❌ Resposta da API inválida:', response.data);
+      return res.status(500).json({
+        error: 'Resposta inválida da API do WhatsApp',
+        details: response.data
+      });
+    }
+
+    const messageId = response.data.messages[0].id;
+    console.log('✅ Mensagem enviada com ID:', messageId);
 
     // Salvar no Supabase
     const { error } = await supabase.rpc('process_whatsapp_message', {
       p_phone_number: `${cleanPhone}@s.whatsapp.net`,
       p_content: message,
-      p_whatsapp_id: response.data.messages[0].id,
+      p_whatsapp_id: messageId,
       p_sender: 'clinic',
       p_message_type: 'text',
       p_timestamp: new Date().toISOString()
@@ -143,18 +157,28 @@ app.post('/send-message', async (req, res) => {
 
     if (error) {
       console.error('❌ Erro ao salvar mensagem enviada:', error);
+    } else {
+      console.log('✅ Mensagem salva no banco de dados');
     }
 
     res.json({ 
       success: true, 
       message: 'Mensagem enviada com sucesso!',
-      whatsapp_message_id: response.data.messages[0].id
+      whatsapp_message_id: messageId
     });
   } catch (error: any) {
     console.error('❌ Erro ao enviar mensagem:', error.response?.data || error.message);
+    
+    // Log detalhado do erro
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Data:', JSON.stringify(error.response.data, null, 2));
+    }
+    
     res.status(500).json({ 
       error: 'Erro ao enviar mensagem',
-      details: error.response?.data || error.message
+      details: error.response?.data || error.message,
+      status: error.response?.status
     });
   }
 });
